@@ -1,0 +1,87 @@
+"""ChromaDB query wrapper — two public functions used by different callers.
+
+query()               → plain string  (used by state_machine coaching loop)
+query_with_metadata() → list of (text, chunk_id, score)  (used by tools.generate_plan)
+"""
+from __future__ import annotations
+import os
+from functools import lru_cache
+from typing import Optional
+
+import chromadb
+from chromadb import EmbeddingFunction, Documents, Embeddings
+from sentence_transformers import SentenceTransformer
+
+CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+COLLECTION_NAME = "acl_protocols"
+TOP_K = 3
+
+
+class _NomicQueryFunction(EmbeddingFunction):
+    def __init__(self) -> None:
+        self._model = SentenceTransformer(
+            "nomic-ai/nomic-embed-text-v1",
+            trust_remote_code=True,
+        )
+
+    def __call__(self, input: Documents) -> Embeddings:
+        prefixed = [f"search_query: {q}" for q in input]
+        return self._model.encode(prefixed, normalize_embeddings=True).tolist()
+
+
+@lru_cache(maxsize=1)
+def _get_collection():
+    client = chromadb.PersistentClient(path=CHROMA_DIR)
+    return client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=_NomicQueryFunction(),
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def query(text: str, protocol: Optional[str] = None, top_k: int = TOP_K) -> str:
+    """Return top-k passages concatenated as a plain string (coaching loop)."""
+    where = {"protocol_name": protocol} if protocol else None
+    try:
+        results = _get_collection().query(
+            query_texts=[f"search_query: {text}"],
+            n_results=top_k,
+            where=where,
+            include=["documents"],
+        )
+        docs = results["documents"][0] if results["documents"] else []
+        return "\n---\n".join(docs) if docs else "No relevant protocol content found."
+    except Exception:
+        return "Protocol knowledge base not yet indexed. Run: python -m rag.ingest"
+
+
+def query_with_metadata(
+    text: str,
+    protocol: Optional[str] = None,
+    top_k: int = TOP_K,
+) -> list[tuple[str, str, float]]:
+    """
+    Return [(document_text, chunk_id, cosine_score), ...] for plan generation.
+
+    chunk_id is the ChromaDB document id — used as rag_source_id in RehabPlan.
+    cosine_score is 1 - distance (higher = more similar).
+    """
+    where = {"protocol_name": protocol} if protocol else None
+    try:
+        results = _get_collection().query(
+            query_texts=[f"search_query: {text}"],
+            n_results=top_k,
+            where=where,
+            include=["documents", "distances", "ids"],
+        )
+    except Exception:
+        return []
+
+    docs = results["documents"][0] if results["documents"] else []
+    ids = results["ids"][0] if results["ids"] else []
+    distances = results["distances"][0] if results["distances"] else []
+
+    return [
+        (doc, chunk_id, round(1.0 - dist, 4))
+        for doc, chunk_id, dist in zip(docs, ids, distances)
+    ]

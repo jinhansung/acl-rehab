@@ -1,0 +1,27 @@
+# Secrets — never commit
+.streamlit/secrets.toml
+.env
+
+# Database
+*.db
+*.sqlite
+
+# ChromaDB index (commit only if pre-building for cloud)
+chroma_db/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
