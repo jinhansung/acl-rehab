@@ -101,13 +101,16 @@ try:
     import chromadb
     t0 = time.perf_counter()
     client = chromadb.PersistentClient(path=_resolved_chroma)
-    col = client.get_or_create_collection("acl_protocols")
-    doc_count = col.count()
+    try:
+        col = client.get_collection("acl_protocols")   # never create here
+        doc_count = col.count()
+    except Exception:
+        doc_count = 0   # collection not yet initialised
     elapsed = (time.perf_counter() - t0) * 1000
     if doc_count == 0:
         _warn("Empty index",
               f"`{_resolved_chroma}` — 0 documents. "
-              "Add PDFs to `protocols/`, run `python -m rag.ingest`, commit & push.")
+              "Upload PDFs on the Admin page to enable plan generation.")
     else:
         _ok("Indexed", f"`{_resolved_chroma}` — {doc_count} chunk(s) — {elapsed:.1f} ms")
 except Exception:
@@ -160,7 +163,11 @@ except Exception:
 
 try:
     import chromadb as _cb
-    _cb.PersistentClient(path=_resolved_chroma).get_or_create_collection("acl_protocols")
+    _c = _cb.PersistentClient(path=_resolved_chroma)
+    try:
+        _c.get_collection("acl_protocols")
+    except Exception:
+        pass  # collection not yet created — that's fine for liveness
     chroma_live = True
 except Exception:
     pass

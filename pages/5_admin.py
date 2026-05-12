@@ -39,11 +39,20 @@ def _get_collection():
     chroma_dir = _chroma_path()
     client = chromadb.PersistentClient(path=chroma_dir)
     ef = NomicEmbedFunction()
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        embedding_function=ef,
-        metadata={"hnsw:space": "cosine"},
-    )
+    try:
+        return client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=ef,
+            metadata={"hnsw:space": "cosine"},
+        )
+    except Exception:
+        # Collection exists with wrong (default) embedding function — recreate it.
+        client.delete_collection(COLLECTION_NAME)
+        return client.create_collection(
+            name=COLLECTION_NAME,
+            embedding_function=ef,
+            metadata={"hnsw:space": "cosine"},
+        )
 
 
 def _chunk_and_upsert(pdf_bytes: bytes, filename: str, protocol_name: str) -> int:
