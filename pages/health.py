@@ -63,7 +63,8 @@ st.subheader("2 · Protocol knowledge base (ChromaDB)")
 try:
     t0 = time.perf_counter()
     import chromadb
-    chroma_dir = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
+    from rag.retriever import _resolve_chroma_dir
+    chroma_dir = _resolve_chroma_dir()
     client = chromadb.PersistentClient(path=chroma_dir)
     collection = client.get_or_create_collection("acl_protocols")
     doc_count = collection.count()
@@ -111,7 +112,11 @@ else:
 # ── Check 5: Environment summary ─────────────────────────────────────────────
 
 st.subheader("5 · Runtime environment")
-chroma_dir = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
+try:
+    from rag.retriever import _resolve_chroma_dir as _rcdir
+    chroma_dir = _rcdir()
+except Exception:
+    chroma_dir = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
 
 try:
     from data.db import DB_PATH as _db_path
@@ -143,8 +148,9 @@ chroma_ok = True
 chroma_nonempty = True
 try:
     import chromadb as _chromadb
+    from rag.retriever import _resolve_chroma_dir as _rcd
     _col = _chromadb.PersistentClient(
-        path=os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
+        path=_rcd()
     ).get_or_create_collection("acl_protocols")
     if _col.count() == 0:
         chroma_nonempty = False

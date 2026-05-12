@@ -24,22 +24,30 @@ def _resolve_db_path() -> str:
     """
     Resolve the SQLite file path from DATABASE_URL or DB_PATH.
     Supports bare paths ("acl_rehab.db") and SQLite URIs ("sqlite:///acl_rehab.db").
-    On Streamlit Community Cloud (/mount/src is read-only) falls back to /tmp.
+    On Streamlit Community Cloud (/mount/src is read-only) any relative path is
+    redirected to /tmp so the app works without secrets changes.
     Raises ValueError for unsupported URL schemes (e.g. postgresql://).
     """
-    # Streamlit Community Cloud: app root is read-only; write to /tmp instead
     _on_cloud = os.path.exists("/mount/src")
     _default = "/tmp/acl_rehab.db" if _on_cloud else "./acl_rehab.db"
 
     raw = os.getenv("DATABASE_URL") or os.getenv("DB_PATH", _default)
+
     if raw.startswith("sqlite:///"):
-        return raw[len("sqlite:///"):]
-    if "://" not in raw:          # bare file path or ":memory:"
-        return raw
-    raise ValueError(
-        f"DATABASE_URL scheme not supported: {raw!r}. "
-        "Only SQLite paths are accepted. See DEPLOYMENT.md for migration options."
-    )
+        path = raw[len("sqlite:///"):]
+    elif "://" not in raw:
+        path = raw
+    else:
+        raise ValueError(
+            f"DATABASE_URL scheme not supported: {raw!r}. "
+            "Only SQLite paths are accepted. See DEPLOYMENT.md for migration options."
+        )
+
+    # On Cloud, relative paths resolve into the read-only app root — redirect to /tmp
+    if _on_cloud and path != ":memory:" and not os.path.isabs(path):
+        path = os.path.join("/tmp", os.path.basename(path))
+
+    return path
 
 
 DB_PATH: str = _resolve_db_path()
