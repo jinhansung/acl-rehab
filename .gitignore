@@ -6,8 +6,8 @@
 *.db
 *.sqlite
 
-# ChromaDB index (commit only if pre-building for cloud)
-chroma_db/
+# ChromaDB index — committed to repo so Streamlit Cloud can serve it
+# chroma_db/
 
 # Python
 __pycache__/
