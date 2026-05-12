@@ -1,175 +1,175 @@
 """
-System health check — for operators and PTs only.
-
-Checks all runtime dependencies and reports their status without
-displaying patient data or exposing secret values.
-
-URL: /health  (Streamlit multi-page routing)
-Built-in Streamlit liveness: /_stcore/health  (returns HTTP 200 when the
-process is alive — useful for uptime monitors and load-balancer probes).
+System health check — operators and PTs only.
+Self-contained: no imports from rag/ so sentence-transformers is never loaded here.
 """
 from __future__ import annotations
 
 import os
 import time
+import traceback
 from datetime import datetime, timezone
 
 import streamlit as st
 
 st.set_page_config(page_title="System Health", layout="centered")
-
 st.title("System Health")
 st.caption(f"Checked at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+
+# ── Shared path helpers (inlined — no rag imports) ────────────────────────────
+
+def _db_path() -> str:
+    on_cloud = os.path.exists("/mount/src")
+    default = "/tmp/acl_rehab.db" if on_cloud else "./acl_rehab.db"
+    raw = os.environ.get("DATABASE_URL") or os.environ.get("DB_PATH", default)
+    if raw.startswith("sqlite:///"):
+        raw = raw[len("sqlite:///"):]
+    if on_cloud and raw != ":memory:" and not os.path.isabs(raw):
+        raw = "/tmp/" + os.path.basename(raw)
+    return raw
+
+
+def _chroma_path() -> str:
+    if os.environ.get("CHROMA_PERSIST_DIR"):
+        return os.environ["CHROMA_PERSIST_DIR"]
+    committed = "/mount/src/acl-rehab/chroma_db"
+    if os.path.exists(committed):
+        return committed
+    if os.path.exists("/mount/src"):
+        return "/tmp/chroma_db"
+    return "./chroma_db"
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _ok(label: str, detail: str = "") -> None:
-    col1, col2 = st.columns([3, 7])
-    col1.success(label)
+    c1, c2 = st.columns([3, 7])
+    c1.success(label)
     if detail:
-        col2.write(detail)
+        c2.write(detail)
 
 
 def _warn(label: str, detail: str = "") -> None:
-    col1, col2 = st.columns([3, 7])
-    col1.warning(label)
+    c1, c2 = st.columns([3, 7])
+    c1.warning(label)
     if detail:
-        col2.write(detail)
+        c2.write(detail)
 
 
 def _fail(label: str, detail: str = "") -> None:
-    col1, col2 = st.columns([3, 7])
-    col1.error(label)
+    c1, c2 = st.columns([3, 7])
+    c1.error(label)
     if detail:
-        col2.write(detail)
+        c2.code(detail)
 
 
-# ── Check 1: Database ─────────────────────────────────────────────────────────
+# ── 1. Database ───────────────────────────────────────────────────────────────
 
 st.subheader("1 · Database (SQLite)")
+_resolved_db = _db_path()
 try:
+    import sqlite3
     t0 = time.perf_counter()
-    from data.db import DB_PATH, get_db
-    with get_db() as db:
-        patient_count = db._conn.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+    conn = sqlite3.connect(_resolved_db)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS patients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            side TEXT NOT NULL,
+            graft_type TEXT NOT NULL,
+            surgery_date TEXT NOT NULL,
+            weight_bearing_status TEXT NOT NULL,
+            meniscal_repair TEXT NOT NULL,
+            stated_goal_text TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            pt_code TEXT,
+            created_at TEXT NOT NULL
+        );
+    """)
+    count = conn.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+    conn.close()
     elapsed = (time.perf_counter() - t0) * 1000
-    _ok("Connected", f"`{DB_PATH}` — {patient_count} patient(s) — {elapsed:.1f} ms")
-except Exception as exc:
-    _fail("Failed", str(exc))
+    _ok("Connected", f"`{_resolved_db}` — {count} patient(s) — {elapsed:.1f} ms")
+except Exception:
+    _fail("Failed", traceback.format_exc())
 
-# ── Check 2: ChromaDB index ───────────────────────────────────────────────────
+# ── 2. ChromaDB ───────────────────────────────────────────────────────────────
 
 st.subheader("2 · Protocol knowledge base (ChromaDB)")
+_resolved_chroma = _chroma_path()
 try:
-    t0 = time.perf_counter()
     import chromadb
-    from rag.retriever import _resolve_chroma_dir
-    chroma_dir = _resolve_chroma_dir()
-    client = chromadb.PersistentClient(path=chroma_dir)
-    collection = client.get_or_create_collection("acl_protocols")
-    doc_count = collection.count()
+    t0 = time.perf_counter()
+    client = chromadb.PersistentClient(path=_resolved_chroma)
+    col = client.get_or_create_collection("acl_protocols")
+    doc_count = col.count()
     elapsed = (time.perf_counter() - t0) * 1000
-
     if doc_count == 0:
-        _warn(
-            "Empty index",
-            f"`{chroma_dir}` — 0 documents. "
-            "Run `python -m rag.ingest` before generating plans.",
-        )
+        _warn("Empty index",
+              f"`{_resolved_chroma}` — 0 documents. "
+              "Add PDFs to `protocols/`, run `python -m rag.ingest`, commit & push.")
     else:
-        _ok("Indexed", f"`{chroma_dir}` — {doc_count} chunk(s) — {elapsed:.1f} ms")
-except Exception as exc:
-    _fail("Failed", str(exc))
+        _ok("Indexed", f"`{_resolved_chroma}` — {doc_count} chunk(s) — {elapsed:.1f} ms")
+except Exception:
+    _fail("Failed", traceback.format_exc())
 
-# ── Check 3: Anthropic API key ────────────────────────────────────────────────
+# ── 3. Anthropic API key ──────────────────────────────────────────────────────
 
 st.subheader("3 · Anthropic API key")
 api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 if not api_key:
-    _fail("Missing", "Set `ANTHROPIC_API_KEY` in `.streamlit/secrets.toml` or environment.")
+    _fail("Missing", "Set ANTHROPIC_API_KEY in Streamlit Cloud secrets.")
 elif not api_key.startswith("sk-ant-"):
-    _warn("Unexpected format", "Key is set but does not match the expected `sk-ant-` prefix.")
+    _warn("Unexpected format", "Key set but does not start with sk-ant-")
 else:
-    masked = api_key[:12] + "..." + api_key[-4:]
-    _ok("Set", f"`{masked}` ({len(api_key)} chars)")
+    _ok("Set", f"`{api_key[:12]}...{api_key[-4:]}` ({len(api_key)} chars)")
 
-# ── Check 4: Journal pepper ───────────────────────────────────────────────────
+# ── 4. Journal pepper ─────────────────────────────────────────────────────────
 
-st.subheader("4 · Journal pepper (JOURNAL_PEPPER)")
+st.subheader("4 · Journal pepper")
 pepper = os.environ.get("JOURNAL_PEPPER", "")
 if not pepper:
-    _warn(
-        "Not set",
-        "Journal entries will use passphrase-only derivation. "
-        "Set `JOURNAL_PEPPER` to a 64-hex-char random string for defence in depth. "
-        "See `.streamlit/secrets.toml.example` for generation instructions.",
-    )
+    _warn("Not set", "Passphrase-only encryption active. Fine for development.")
 elif len(pepper) < 32:
-    _warn("Too short", f"Pepper is {len(pepper)} chars — recommended minimum is 32.")
+    _warn("Too short", f"{len(pepper)} chars — recommend 64 hex chars.")
 else:
     _ok("Set", f"{len(pepper)}-char pepper configured.")
 
-# ── Check 5: Environment summary ─────────────────────────────────────────────
+# ── 5. Environment summary ────────────────────────────────────────────────────
 
 st.subheader("5 · Runtime environment")
-try:
-    from rag.retriever import _resolve_chroma_dir as _rcdir
-    chroma_dir = _rcdir()
-except Exception:
-    chroma_dir = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
-
-try:
-    from data.db import DB_PATH as _db_path
-except Exception:
-    _db_path = os.environ.get("DATABASE_URL") or os.environ.get("DB_PATH", "?")
-
-env_rows = {
-    "DATABASE_URL / DB_PATH": _db_path,
-    "CHROMA_PERSIST_DIR": chroma_dir,
+st.table({
+    "DATABASE_URL resolved": _resolved_db,
+    "CHROMA_PERSIST_DIR resolved": _resolved_chroma,
+    "On Streamlit Cloud": str(os.path.exists("/mount/src")),
     "ANTHROPIC_API_KEY": "set" if api_key else "not set",
-    "JOURNAL_PEPPER": f"set ({len(pepper)} chars)" if pepper else "not set",
-}
-st.table(env_rows)
+    "JOURNAL_PEPPER": f"{len(pepper)} chars" if pepper else "not set",
+})
 
-# ── Overall banner ────────────────────────────────────────────────────────────
+# ── Overall verdict ───────────────────────────────────────────────────────────
 
 st.divider()
-
-# Collect the verdict by re-evaluating key conditions
-db_ok = True
+db_live = False
+chroma_live = False
 try:
-    from data.db import get_db
-    with get_db() as db:
-        db._conn.execute("SELECT 1")
+    import sqlite3 as _sq
+    _sq.connect(_resolved_db).execute("SELECT 1").fetchone()
+    db_live = True
 except Exception:
-    db_ok = False
+    pass
 
-chroma_ok = True
-chroma_nonempty = True
 try:
-    import chromadb as _chromadb
-    from rag.retriever import _resolve_chroma_dir as _rcd
-    _col = _chromadb.PersistentClient(
-        path=_rcd()
-    ).get_or_create_collection("acl_protocols")
-    if _col.count() == 0:
-        chroma_nonempty = False
+    import chromadb as _cb
+    _cb.PersistentClient(path=_resolved_chroma).get_or_create_collection("acl_protocols")
+    chroma_live = True
 except Exception:
-    chroma_ok = False
+    pass
 
-key_ok = bool(api_key)
-
-if db_ok and chroma_ok and chroma_nonempty and key_ok:
-    st.success("All systems operational — app is ready to use.")
-elif db_ok and key_ok:
-    st.warning(
-        "Core services up, but the protocol knowledge base is empty. "
-        "Plan generation will fail until `python -m rag.ingest` is run."
-    )
+if db_live and chroma_live and api_key:
+    st.success("All systems operational.")
+elif db_live and api_key:
+    st.warning("Core services up. ChromaDB empty — ingest PDFs to enable plan generation.")
 else:
-    st.error("One or more critical checks failed — see details above.")
+    st.error("One or more critical checks failed — see tracebacks above.")
 
-st.caption(
-    "This page does not display patient data. "
-    "Built-in Streamlit liveness probe: `/_stcore/health`"
-)
+st.caption("Liveness probe: `/_stcore/health`")
