@@ -6,12 +6,10 @@ Invariants enforced here:
 - JournalEntry carries only ciphertext; plaintext never appears in any model.
 - ConsentRecord.data_sent_hash must be set before a RehabPlan references it.
 """
-from __future__ import annotations
-
 import hashlib
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -189,7 +187,7 @@ class SessionRecord(BaseModel):
     exercises_completed: list[str] = Field(default_factory=list)
     exercises_skipped: list[str] = Field(default_factory=list)
     session_notes: str = ""
-    duration_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    duration_minutes: Optional[Annotated[int, Field(ge=1, le=480)]] = None
 
     def is_this_week(self) -> bool:
         return (date.today() - self.date).days < 7
@@ -235,7 +233,7 @@ class RedFlagEvent(BaseModel):
     patient_id: int
     triggered_at: datetime = Field(default_factory=datetime.utcnow)
     # Human-readable flag strings from agent/red_flags.py
-    flags: list[str] = Field(min_length=1)
+    flags: list[str] = Field(default_factory=list)
     pain_score: int = Field(ge=0, le=10)
     swelling: SwellingLevel
     giving_way: bool
