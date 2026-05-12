@@ -12,7 +12,9 @@ import chromadb
 from chromadb import EmbeddingFunction, Documents, Embeddings
 from sentence_transformers import SentenceTransformer
 
-CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+# Streamlit Community Cloud: /mount/src is read-only; write ChromaDB to /tmp
+_on_cloud = os.path.exists("/mount/src")
+CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "/tmp/chroma_db" if _on_cloud else "./chroma_db")
 COLLECTION_NAME = "acl_protocols"
 TOP_K = 3
 

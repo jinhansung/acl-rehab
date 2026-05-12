@@ -24,9 +24,14 @@ def _resolve_db_path() -> str:
     """
     Resolve the SQLite file path from DATABASE_URL or DB_PATH.
     Supports bare paths ("acl_rehab.db") and SQLite URIs ("sqlite:///acl_rehab.db").
+    On Streamlit Community Cloud (/mount/src is read-only) falls back to /tmp.
     Raises ValueError for unsupported URL schemes (e.g. postgresql://).
     """
-    raw = os.getenv("DATABASE_URL") or os.getenv("DB_PATH", "./acl_rehab.db")
+    # Streamlit Community Cloud: app root is read-only; write to /tmp instead
+    _on_cloud = os.path.exists("/mount/src")
+    _default = "/tmp/acl_rehab.db" if _on_cloud else "./acl_rehab.db"
+
+    raw = os.getenv("DATABASE_URL") or os.getenv("DB_PATH", _default)
     if raw.startswith("sqlite:///"):
         return raw[len("sqlite:///"):]
     if "://" not in raw:          # bare file path or ":memory:"

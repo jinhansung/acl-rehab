@@ -18,7 +18,9 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
 PROTOCOLS_DIR = Path(__file__).parent.parent / "protocols"
-CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+# Streamlit Community Cloud: /mount/src is read-only; write ChromaDB to /tmp
+_on_cloud = os.path.exists("/mount/src")
+CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "/tmp/chroma_db" if _on_cloud else "./chroma_db")
 COLLECTION_NAME = "acl_protocols"
 
 CHUNK_SIZE = 900
