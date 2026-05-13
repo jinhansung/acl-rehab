@@ -55,7 +55,68 @@ with get_db() as db:
     plan = db.get_latest_plan(patient_id)
 
 if state == RehabState.ONBOARDING:
-    st.info("Your profile is set up. Your PT will generate a plan for you shortly.")
+    st.subheader("Generate your first plan")
+    st.write(
+        "Your profile is saved. To create your personalised exercise plan, "
+        "we need to send some anonymised clinical details to the AI model."
+    )
+
+    with st.expander("What gets sent to the AI?"):
+        st.write(
+            "- Operated leg, graft type, weeks post-op, weight-bearing status, "
+            "meniscal repair, assigned protocol  \n"
+            "- Your stated recovery goal (your own words)  \n"
+            "**What is never sent:** your name, date of birth, or any other identifying information."
+        )
+
+    if "plan_consent_given" not in st.session_state:
+        st.session_state.plan_consent_given = False
+
+    if not st.session_state.plan_consent_given:
+        if st.button("I understand — generate my plan", type="primary"):
+            st.session_state.plan_consent_given = True
+            st.rerun()
+        st.stop()
+
+    # Consent given — save ConsentRecord then call API
+    import hashlib
+    from agent.tools import generate_plan
+    from data.models import ConsentRecord, ConsentType
+
+    anon_payload = (
+        f"{patient.side}|{patient.graft_type}|{patient.weeks_post_op}|"
+        f"{patient.weight_bearing_status}|{patient.meniscal_repair}|"
+        f"{patient.protocol}|{patient.stated_goal_text}"
+    )
+    payload_hash = hashlib.sha256(anon_payload.encode()).hexdigest()
+
+    consent = ConsentRecord(
+        patient_id=patient_id,
+        consent_type=ConsentType.PLAN_GENERATION,
+        model_used="claude-sonnet-4-20250514",
+        data_sent_hash=payload_hash,
+    )
+
+    with st.spinner("Generating your plan — this takes about 20 seconds…"):
+        try:
+            with get_db() as db:
+                consent_id = db.save_consent(consent)
+            week = patient.weeks_post_op
+            plan_obj = generate_plan(
+                patient=patient,
+                consent_record_id=consent_id,
+                week_start=week,
+                week_end=week + 1,
+            )
+            with get_db() as db:
+                db.save_rehab_plan(plan_obj)
+            st.success(
+                "Plan generated and sent to your PT for review. "
+                "Come back once they've approved it."
+            )
+            st.session_state.plan_consent_given = False
+        except Exception as exc:
+            st.error(f"Plan generation failed: {exc}")
     st.stop()
 
 if state == RehabState.PLAN_PENDING_PT:
