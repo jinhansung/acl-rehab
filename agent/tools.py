@@ -206,8 +206,14 @@ def _gather_rag_context(patient: PatientProfile, week_start: int) -> tuple[str, 
     protocol_str = str(patient.protocol)  # ensure plain str, not enum member
 
     for q in queries:
-        # Try protocol-filtered first; fall back to unfiltered if nothing matches
-        results = query_with_metadata(q, protocol=protocol_str, top_k=3)
+        # Try protocol-filtered first; fall back to unfiltered if nothing matches.
+        # RuntimeError from query_with_metadata (e.g. empty collection) propagates up.
+        try:
+            results = query_with_metadata(q, protocol=protocol_str, top_k=3)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"RAG query failed: {exc}") from exc
         if not results:
             results = query_with_metadata(q, protocol=None, top_k=3)
         for text, chunk_id, score in results:
@@ -217,8 +223,8 @@ def _gather_rag_context(patient: PatientProfile, week_start: int) -> tuple[str, 
 
     if not blocks:
         raise RuntimeError(
-            "Protocol knowledge base returned no results. "
-            "Ingest protocol PDFs on the Admin page, then retry."
+            "RAG queries returned no documents even without a protocol filter. "
+            "Check that the PDF was ingested and the collection is non-empty."
         )
 
     return "\n\n---\n\n".join(blocks), list(seen_ids)

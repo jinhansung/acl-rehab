@@ -5,7 +5,6 @@ query_with_metadata() → list of (text, chunk_id, score)  (used by tools.genera
 """
 from __future__ import annotations
 import os
-from functools import lru_cache
 from typing import Optional
 
 import chromadb
@@ -14,8 +13,6 @@ from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 def _resolve_chroma_dir() -> str:
     if os.getenv("CHROMA_PERSIST_DIR"):
         return os.getenv("CHROMA_PERSIST_DIR")
-    # On Streamlit Community Cloud the app root is at /mount/src/<repo>
-    # Prefer the committed index there; fall back to /tmp for writes
     cloud_committed = "/mount/src/acl-rehab/chroma_db"
     if os.path.exists(cloud_committed):
         return cloud_committed
@@ -28,8 +25,8 @@ COLLECTION_NAME = "acl_protocols"
 TOP_K = 3
 
 
-@lru_cache(maxsize=1)
 def _get_collection():
+    """Always returns a fresh collection handle — no caching to avoid stale HNSW index."""
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -42,16 +39,21 @@ def query(text: str, protocol: Optional[str] = None, top_k: int = TOP_K) -> str:
     """Return top-k passages concatenated as a plain string (coaching loop)."""
     where = {"protocol_name": {"$eq": protocol}} if protocol else None
     try:
-        results = _get_collection().query(
+        col = _get_collection()
+        count = col.count()
+        if count == 0:
+            return "Protocol knowledge base not yet indexed."
+        n = min(top_k, count)
+        results = col.query(
             query_texts=[text],
-            n_results=top_k,
+            n_results=n,
             where=where,
             include=["documents"],
         )
         docs = results["documents"][0] if results["documents"] else []
         return "\n---\n".join(docs) if docs else "No relevant protocol content found."
-    except Exception:
-        return "Protocol knowledge base not yet indexed. Run: python -m rag.ingest"
+    except Exception as exc:
+        return f"RAG query error: {exc}"
 
 
 def query_with_metadata(
@@ -62,22 +64,27 @@ def query_with_metadata(
     """
     Return [(document_text, chunk_id, cosine_score), ...] for plan generation.
 
-    chunk_id is the ChromaDB document id — used as rag_source_id in RehabPlan.
-    cosine_score is 1 - distance (higher = more similar).
+    Raises RuntimeError with a descriptive message on failure so callers
+    can surface the actual problem rather than silently getting empty results.
     """
     where = {"protocol_name": {"$eq": protocol}} if protocol else None
-    try:
-        results = _get_collection().query(
-            query_texts=[text],
-            n_results=top_k,
-            where=where,
-            include=["documents", "distances", "ids"],
+    col = _get_collection()
+    count = col.count()
+    if count == 0:
+        raise RuntimeError(
+            f"ChromaDB collection '{COLLECTION_NAME}' is empty (path: {CHROMA_DIR}). "
+            "Ingest protocol PDFs on the Admin page first."
         )
-    except Exception:
-        return []
+    n = min(top_k, count)
+    results = col.query(
+        query_texts=[text],
+        n_results=n,
+        where=where,
+        include=["documents", "distances", "ids"],
+    )
 
-    docs = results["documents"][0] if results["documents"] else []
-    ids = results["ids"][0] if results["ids"] else []
+    docs      = results["documents"][0] if results["documents"] else []
+    ids       = results["ids"][0]       if results["ids"]       else []
     distances = results["distances"][0] if results["distances"] else []
 
     return [
