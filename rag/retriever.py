@@ -40,7 +40,7 @@ def _get_collection():
 
 def query(text: str, protocol: Optional[str] = None, top_k: int = TOP_K) -> str:
     """Return top-k passages concatenated as a plain string (coaching loop)."""
-    where = {"protocol_name": protocol} if protocol else None
+    where = {"protocol_name": {"$eq": protocol}} if protocol else None
     try:
         results = _get_collection().query(
             query_texts=[text],
@@ -65,7 +65,7 @@ def query_with_metadata(
     chunk_id is the ChromaDB document id — used as rag_source_id in RehabPlan.
     cosine_score is 1 - distance (higher = more similar).
     """
-    where = {"protocol_name": protocol} if protocol else None
+    where = {"protocol_name": {"$eq": protocol}} if protocol else None
     try:
         results = _get_collection().query(
             query_texts=[text],

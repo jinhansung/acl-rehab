@@ -203,8 +203,13 @@ def _gather_rag_context(patient: PatientProfile, week_start: int) -> tuple[str, 
     blocks: list[str] = []
 
     from rag.retriever import query_with_metadata  # returns (text, chunk_id, score)
+    protocol_str = str(patient.protocol)  # ensure plain str, not enum member
+
     for q in queries:
-        results = query_with_metadata(q, protocol=patient.protocol, top_k=3)
+        # Try protocol-filtered first; fall back to unfiltered if nothing matches
+        results = query_with_metadata(q, protocol=protocol_str, top_k=3)
+        if not results:
+            results = query_with_metadata(q, protocol=None, top_k=3)
         for text, chunk_id, score in results:
             if chunk_id not in seen_ids:
                 seen_ids.add(chunk_id)
@@ -213,7 +218,7 @@ def _gather_rag_context(patient: PatientProfile, week_start: int) -> tuple[str, 
     if not blocks:
         raise RuntimeError(
             "Protocol knowledge base returned no results. "
-            "Run: python -m rag.ingest — then retry."
+            "Ingest protocol PDFs on the Admin page, then retry."
         )
 
     return "\n\n---\n\n".join(blocks), list(seen_ids)
