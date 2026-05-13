@@ -33,12 +33,13 @@ def _chroma_path() -> str:
 
 @st.cache_resource(show_spinner="Loading embedding model…")
 def _get_collection():
-    """Load the ChromaDB collection with the embedding model (cached)."""
+    """Load the ChromaDB collection with the ONNX embedding model (cached)."""
     import chromadb
-    from rag.ingest import NomicEmbedFunction, COLLECTION_NAME
+    from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+    from rag.ingest import COLLECTION_NAME
     chroma_dir = _chroma_path()
     client = chromadb.PersistentClient(path=chroma_dir)
-    ef = NomicEmbedFunction()
+    ef = DefaultEmbeddingFunction()
     try:
         return client.get_or_create_collection(
             name=COLLECTION_NAME,
@@ -46,7 +47,6 @@ def _get_collection():
             metadata={"hnsw:space": "cosine"},
         )
     except Exception:
-        # Collection exists with wrong (default) embedding function — recreate it.
         client.delete_collection(COLLECTION_NAME)
         return client.create_collection(
             name=COLLECTION_NAME,

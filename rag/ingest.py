@@ -13,9 +13,8 @@ from pathlib import Path
 from typing import Iterator
 
 import chromadb
-from chromadb import EmbeddingFunction, Documents, Embeddings
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
 
 PROTOCOLS_DIR = Path(__file__).parent.parent / "protocols"
 def _resolve_chroma_dir() -> str:
@@ -38,22 +37,6 @@ PROTOCOL_NAMES: dict[str, str] = {
     "Aspetar": "Aspetar",
     "DVT": "DVT",
 }
-
-
-class NomicEmbedFunction(EmbeddingFunction):
-    """ChromaDB-compatible wrapper around nomic-embed-text-v1."""
-
-    def __init__(self) -> None:
-        # trust_remote_code required for nomic-embed-text
-        self._model = SentenceTransformer(
-            "nomic-ai/nomic-embed-text-v1",
-            trust_remote_code=True,
-        )
-
-    def __call__(self, input: Documents) -> Embeddings:
-        # nomic-embed-text expects a task prefix for retrieval documents
-        prefixed = [f"search_document: {doc}" for doc in input]
-        return self._model.encode(prefixed, normalize_embeddings=True).tolist()
 
 
 # ── Chunking ─────────────────────────────────────────────────────────────────
@@ -102,7 +85,7 @@ def ingest_all(protocols_dir: Path = PROTOCOLS_DIR, verbose: bool = True) -> int
         print(f"No PDFs found in {protocols_dir}. Add protocol PDFs and re-run.")
         return 0
 
-    ef = NomicEmbedFunction()
+    ef = DefaultEmbeddingFunction()
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,

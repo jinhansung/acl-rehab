@@ -9,8 +9,7 @@ from functools import lru_cache
 from typing import Optional
 
 import chromadb
-from chromadb import EmbeddingFunction, Documents, Embeddings
-from sentence_transformers import SentenceTransformer
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
 def _resolve_chroma_dir() -> str:
     if os.getenv("CHROMA_PERSIST_DIR"):
@@ -29,24 +28,12 @@ COLLECTION_NAME = "acl_protocols"
 TOP_K = 3
 
 
-class _NomicQueryFunction(EmbeddingFunction):
-    def __init__(self) -> None:
-        self._model = SentenceTransformer(
-            "nomic-ai/nomic-embed-text-v1",
-            trust_remote_code=True,
-        )
-
-    def __call__(self, input: Documents) -> Embeddings:
-        prefixed = [f"search_query: {q}" for q in input]
-        return self._model.encode(prefixed, normalize_embeddings=True).tolist()
-
-
 @lru_cache(maxsize=1)
 def _get_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=_NomicQueryFunction(),
+        embedding_function=DefaultEmbeddingFunction(),
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -56,7 +43,7 @@ def query(text: str, protocol: Optional[str] = None, top_k: int = TOP_K) -> str:
     where = {"protocol_name": protocol} if protocol else None
     try:
         results = _get_collection().query(
-            query_texts=[f"search_query: {text}"],
+            query_texts=[text],
             n_results=top_k,
             where=where,
             include=["documents"],
@@ -81,7 +68,7 @@ def query_with_metadata(
     where = {"protocol_name": protocol} if protocol else None
     try:
         results = _get_collection().query(
-            query_texts=[f"search_query: {text}"],
+            query_texts=[text],
             n_results=top_k,
             where=where,
             include=["documents", "distances", "ids"],
