@@ -7,7 +7,7 @@ Invariants enforced here:
 - ConsentRecord.data_sent_hash must be set before a RehabPlan references it.
 """
 import hashlib
-from datetime import date, datetime
+from datetime import date as Date, datetime
 from enum import Enum
 from typing import Annotated, Any, Optional
 
@@ -76,7 +76,7 @@ class PatientProfile(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     side: str = Field(pattern=r"^(Left|Right)$")
     graft_type: GraftType
-    surgery_date: date
+    surgery_date: Date
     weight_bearing_status: WeightBearingStatus
     meniscal_repair: MeniscalRepair
     # Patient's own words — stored verbatim, never anonymized away
@@ -87,14 +87,14 @@ class PatientProfile(BaseModel):
 
     @field_validator("surgery_date")
     @classmethod
-    def surgery_date_not_future(cls, v: date) -> date:
-        if v > date.today():
+    def surgery_date_not_future(cls, v: Date) -> Date:
+        if v > Date.today():
             raise ValueError("Surgery date cannot be in the future.")
         return v
 
     @property
     def weeks_post_op(self) -> int:
-        return max(1, (date.today() - self.surgery_date).days // 7 + 1)
+        return max(1, (Date.today() - self.surgery_date).days // 7 + 1)
 
 
 class BaselineMeasurements(BaseModel):
@@ -179,7 +179,7 @@ class SessionRecord(BaseModel):
 
     id: Optional[int] = None
     patient_id: int
-    date: date = Field(default_factory=date.today)
+    date: Date = Field(default_factory=Date.today)
     week_number: int = Field(ge=1)
     pain_score: int = Field(ge=0, le=10)
     swelling: SwellingLevel
@@ -190,7 +190,7 @@ class SessionRecord(BaseModel):
     duration_minutes: Optional[Annotated[int, Field(ge=1, le=480)]] = None
 
     def is_this_week(self) -> bool:
-        return (date.today() - self.date).days < 7
+        return (Date.today() - self.date).days < 7
 
 
 class Measurement(BaseModel):
@@ -219,7 +219,7 @@ class JournalEntry(BaseModel):
     """
     id: Optional[int] = None
     patient_id: int
-    date: date = Field(default_factory=date.today)
+    date: Date = Field(default_factory=Date.today)
     # Fernet ciphertext bytes — decrypted only in data/journal.py
     ciphertext: bytes
 
