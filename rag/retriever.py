@@ -80,7 +80,7 @@ def query_with_metadata(
         query_texts=[text],
         n_results=n,
         where=where,
-        include=["documents", "distances", "ids"],
+        include=["documents", "distances"],
     )
 
     docs      = results["documents"][0] if results["documents"] else []
