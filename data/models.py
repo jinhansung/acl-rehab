@@ -73,16 +73,16 @@ class PatientProfile(BaseModel):
 
     id: Optional[int] = None
     # name is stored locally only; never passed to any API
-    name: str = Field(min_length=1, max_length=120)
-    side: str = Field(pattern=r"^(Left|Right)$")
+    name: Annotated[str, Field(min_length=1, max_length=120)]
+    side: Annotated[str, Field(pattern=r"^(Left|Right)$")]
     graft_type: GraftType
     surgery_date: Date
     weight_bearing_status: WeightBearingStatus
     meniscal_repair: MeniscalRepair
     # Patient's own words — stored verbatim, never anonymized away
-    stated_goal_text: str = Field(min_length=5, max_length=1000)
+    stated_goal_text: Annotated[str, Field(min_length=5, max_length=1000)]
     protocol: Protocol
-    pt_code: Optional[str] = Field(default=None, max_length=64)
+    pt_code: Optional[Annotated[str, Field(max_length=64)]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @field_validator("surgery_date")
@@ -126,7 +126,7 @@ class ConsentRecord(BaseModel):
     consent_type: ConsentType
     model_used: str
     # SHA-256 of the anonymised payload actually sent — audit trail
-    data_sent_hash: str = Field(min_length=64, max_length=64)
+    data_sent_hash: Annotated[str, Field(min_length=64, max_length=64)]
     revoked_at: Optional[datetime] = None
 
     @classmethod
@@ -180,8 +180,8 @@ class SessionRecord(BaseModel):
     id: Optional[int] = None
     patient_id: int
     date: Date = Field(default_factory=Date.today)
-    week_number: int = Field(ge=1)
-    pain_score: int = Field(ge=0, le=10)
+    week_number: Annotated[int, Field(ge=1)]
+    pain_score: Annotated[int, Field(ge=0, le=10)]
     swelling: SwellingLevel
     giving_way: bool
     exercises_completed: list[str] = Field(default_factory=list)
@@ -201,9 +201,9 @@ class Measurement(BaseModel):
     patient_id: int
     session_id: Optional[int] = None
     measured_at: datetime = Field(default_factory=datetime.utcnow)
-    metric: str = Field(min_length=1, max_length=80)
+    metric: Annotated[str, Field(min_length=1, max_length=200)]
     value: float
-    unit: str = Field(min_length=1, max_length=20)
+    unit: Annotated[str, Field(min_length=1, max_length=20)]
 
     @field_validator("metric")
     @classmethod

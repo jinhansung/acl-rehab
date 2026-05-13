@@ -372,25 +372,33 @@ if not st.session_state.session_saved:
             session_notes=shared_notes if share_with_pt else "",
         )
 
-        with get_db() as db:
-            session_id = db.save_session(record)
-            db.save_measurement(Measurement(
-                patient_id=patient_id,
-                session_id=session_id,
-                metric="rpe_cr10",
-                value=float(rpe),
-                unit="0-10",
-            ))
-            # Per-exercise pain measurements
-            for ex_name, ex_state in ex_states.items():
-                if ex_state["completed"]:
-                    db.save_measurement(Measurement(
-                        patient_id=patient_id,
-                        session_id=session_id,
-                        metric=f"pain_during_{ex_name.lower().replace(' ', '_')}",
-                        value=float(ex_state["pain_during"]),
-                        unit="0-10",
-                    ))
+        try:
+            with get_db() as db:
+                session_id = db.save_session(record)
+                db.save_measurement(Measurement(
+                    patient_id=patient_id,
+                    session_id=session_id,
+                    metric="rpe_cr10",
+                    value=float(rpe),
+                    unit="0-10",
+                ))
+                # Per-exercise pain measurements
+                for ex_name, ex_state in ex_states.items():
+                    if ex_state["completed"]:
+                        safe_metric = (
+                            f"pain_during_{ex_name.lower().replace(' ', '_')}"
+                        )[:200]
+                        db.save_measurement(Measurement(
+                            patient_id=patient_id,
+                            session_id=session_id,
+                            metric=safe_metric,
+                            value=float(ex_state["pain_during"]),
+                            unit="0-10",
+                        ))
+        except Exception as _save_err:
+            st.error(f"Failed to save session: {_save_err}")
+            st.code(traceback.format_exc())
+            st.stop()
 
         # Save journal entry (encrypted, never shared) if entered
         passphrase = st.session_state.journal_passphrase
