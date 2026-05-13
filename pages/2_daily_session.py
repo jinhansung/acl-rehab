@@ -93,7 +93,7 @@ if state == RehabState.ONBOARDING:
     consent = ConsentRecord(
         patient_id=patient_id,
         consent_type=ConsentType.PLAN_GENERATION,
-        model_used="claude-sonnet-4-20250514",
+        model_used="claude-sonnet-4-6",
         data_sent_hash=payload_hash,
     )
 

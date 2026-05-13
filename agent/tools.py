@@ -35,7 +35,7 @@ from data.models import (
 )
 from rag.retriever import query as rag_query
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-4-6"
 
 # ── Tool schema that Claude must call to return structured output ──────────────
 
