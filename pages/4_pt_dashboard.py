@@ -156,6 +156,8 @@ def _render_plan_review(plan: RehabPlan, patient: PatientProfile) -> None:
                     plan.id, edited_exercises, st.session_state[summary_key]
                 )
                 db.approve_plan(plan.id, pt_notes=pt_notes)
+            from agent.state_machine import RehabStateMachine
+            RehabStateMachine(plan.patient_id).trigger_plan_approved()
             st.success("Plan approved — patient will see it in their next session.")
             st.rerun()
 

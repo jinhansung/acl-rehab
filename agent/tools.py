@@ -233,7 +233,16 @@ def _gather_rag_context(patient: PatientProfile, week_start: int) -> tuple[str, 
 def _extract_tool_input(response: anthropic.types.Message, tool_name: str) -> dict:
     for block in response.content:
         if block.type == "tool_use" and block.name == tool_name:
-            return block.input
+            inp = block.input
+            # Some SDK versions return block.input as a JSON string rather than a dict.
+            if isinstance(inp, str):
+                inp = json.loads(inp)
+            if not isinstance(inp, dict):
+                raise ValueError(
+                    f"Tool input for '{tool_name}' is {type(inp).__name__}, expected dict. "
+                    f"Raw value: {inp!r}"
+                )
+            return inp
     raise ValueError(
         f"Model did not call '{tool_name}'. "
         f"stop_reason={response.stop_reason}. "
@@ -324,9 +333,33 @@ def generate_plan(
     # ── 4. Parse and validate structured output ───────────────────────────────
     output = _extract_tool_input(response, "submit_rehab_plan")
 
-    exercises: list[dict] = output["exercises"]
+    raw_exercises = output.get("exercises", [])
+    # Defensively parse if Claude returned exercises as a JSON string.
+    if isinstance(raw_exercises, str):
+        raw_exercises = json.loads(raw_exercises)
+    if not isinstance(raw_exercises, list):
+        raise ValueError(
+            f"'exercises' field is {type(raw_exercises).__name__}, expected list. "
+            f"Value: {raw_exercises!r}"
+        )
+    exercises: list[dict] = []
+    for i, item in enumerate(raw_exercises):
+        if isinstance(item, str):
+            try:
+                item = json.loads(item)
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"exercises[{i}] is a plain string, not a dict: {item!r}. "
+                    "Model did not follow the tool schema."
+                )
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"exercises[{i}] is {type(item).__name__}, expected dict. Value: {item!r}"
+            )
+        exercises.append(item)
+
     missing_citations = [
-        ex["name"] for ex in exercises
+        ex.get("name", f"exercise[{i}]") for i, ex in enumerate(exercises)
         if not ex.get("rag_source_id", "").strip()
     ]
     if missing_citations:

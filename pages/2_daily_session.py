@@ -12,6 +12,7 @@ Flow:
 """
 from __future__ import annotations
 
+import traceback
 from datetime import date
 
 import streamlit as st
@@ -53,6 +54,22 @@ state = fsm.get_state()
 with get_db() as db:
     patient = db.get_patient(patient_id)
     plan = db.get_latest_plan(patient_id)
+
+# Self-heal: if the plan is already approved but the FSM state never advanced
+# (e.g. triggers were missed on an older code path), catch up now.
+if plan is not None and plan.review_status == "approved" and state != RehabState.ACTIVE:
+    try:
+        if state == RehabState.ONBOARDING:
+            fsm.trigger_plan_submitted()
+        fsm.trigger_plan_approved()
+        state = fsm.get_state()
+    except Exception as _reconcile_err:
+        st.error(f"State reconciliation failed: {_reconcile_err}")
+        st.code(traceback.format_exc())
+        st.stop()
+
+# Debug: remove once flow is confirmed working
+st.caption(f"🔧 debug — FSM state: `{state}` | plan: {'none' if plan is None else plan.review_status}")
 
 if state == RehabState.ONBOARDING:
     st.subheader("Generate your first plan")
@@ -110,6 +127,7 @@ if state == RehabState.ONBOARDING:
             )
             with get_db() as db:
                 db.save_rehab_plan(plan_obj)
+            fsm.trigger_plan_submitted()
             st.success(
                 "Plan generated and sent to your PT for review. "
                 "Come back once they've approved it."
@@ -117,6 +135,8 @@ if state == RehabState.ONBOARDING:
             st.session_state.plan_consent_given = False
         except Exception as exc:
             st.error(f"Plan generation failed: {exc}")
+            with st.expander("Error details (for debugging)"):
+                st.code(traceback.format_exc())
     st.stop()
 
 if state == RehabState.PLAN_PENDING_PT:
