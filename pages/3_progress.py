@@ -29,14 +29,16 @@ df = pd.DataFrame(
 st.subheader("Pain over time")
 st.line_chart(df["pain"])
 
-# ── Milestone checklist ──────────────────────────────────────────────────────
-st.subheader("Protocol milestones")
-with get_db() as db:
-    milestones = db.get_milestones(patient_id)
-
-for m in milestones:
-    icon = "✅" if m.achieved else "⬜"
-    st.write(f"{icon} {m.name} (week {m.target_week})")
+# ── Exercise adherence ───────────────────────────────────────────────────────
+st.subheader("Exercise adherence")
+total_done = sum(len(s.exercises_completed) for s in sessions)
+total_skipped = sum(len(s.exercises_skipped) for s in sessions)
+total_ex = total_done + total_skipped
+if total_ex > 0:
+    st.metric("Overall adherence", f"{100 * total_done // total_ex}%",
+              help=f"{total_done} completed, {total_skipped} skipped across all sessions")
+else:
+    st.write("No exercise data yet.")
 
 # ── Weekly summary ───────────────────────────────────────────────────────────
 st.subheader("This week")
